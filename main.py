@@ -1,3 +1,7 @@
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from ai.engine import get_validated_response
 from ai.openai_client import OpenAIClient
 from ai.validator import InvalidAIResponse

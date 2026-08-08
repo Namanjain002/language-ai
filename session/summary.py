@@ -34,3 +34,13 @@ _FRIENDLY_NAMES = {
 def generate_summary(session: ChatSession) -> List[str]:
     ranked = sorted(session.error_tally.items(), key=lambda pair: pair[1], reverse=True)
     return [_FRIENDLY_NAMES[category] for category, count in ranked if count > 0]
+
+def clear_summary(session: ChatSession):
+    session.error_tally.clear()
+
+message = []
+def context(text: str):
+    message.append(text)
+
+def get_context() -> str:
+    return " ".join(message)

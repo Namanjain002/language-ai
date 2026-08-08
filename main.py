@@ -1,41 +1,74 @@
 from dotenv import load_dotenv
-
 load_dotenv()
+
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from ai.engine import get_validated_response
 from ai.openai_client import OpenAIClient
 from ai.validator import InvalidAIResponse
-from cli.render import render_response, render_summary
-from session.inactivity import should_show_summary
 from session.state import ChatSession
-from session.summary import generate_summary
+from session.summary import context
 
 
-def run() -> None:
-    client = OpenAIClient()
-    session = ChatSession()
+app = FastAPI()
 
-    print("Hey,What's up? \nI am your AI language assistant.\n")
-    while True:
-        user_message = input("> ").strip()
-        if user_message.lower() in ("exit", "quit"):
-            break
-        if not user_message:
-            continue
+client = OpenAIClient()
+session = ChatSession()
 
-        if should_show_summary(session):
-            render_summary(generate_summary(session))
-            session.error_tally.clear()
 
-        try:
-            response = get_validated_response(client, user_message)
-        except InvalidAIResponse:
-            print("Sorry, having trouble right now -- try again?")
-            continue
+# -------------------------
+# Request format
+# -------------------------
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+# -------------------------
+# Serve frontend
+# -------------------------
+
+@app.get("/")
+def serve_frontend():
+    return FileResponse("index.html")
+
+
+# -------------------------
+# Chat API
+# -------------------------
+
+@app.post("/api/chat")
+def chat(request: ChatRequest):
+
+    user_message = request.message.strip()
+
+    if not user_message:
+        return {
+            "error": "Message cannot be empty"
+        }
+
+    try:
+        response = get_validated_response(
+            client,
+            user_message
+        )
 
         session.record(user_message, response)
-        render_response(response)
+        
+        context(response.corrected_text)
+        context(response.reply)
 
+        return {
+            "has_error": response.has_error,
+            "corrected_text": response.corrected_text,
+            "reply": response.reply,
+            "error_categories": response.error_categories
+        }
 
-if __name__ == "__main__":
-    run()
+    except InvalidAIResponse:
+        return {
+            "error": "AI returned an invalid response"
+        }
+

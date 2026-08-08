@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grammar Chat</title>
+<style>
+:root {
+  --bg-color: #0f1115;
+  --chat-bg: #15171c;
+  --bubble-dark: #262a33;
+  --bubble-light: #cfd2d6;
+  --accent: #4f8cff;
+  --text-light: #f2f3f5;
+  --text-dark: #202124;
+  --radius: 14px;
+  --gap: 10px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+body {
+  background: var(--bg-color);
+  color: var(--text-light);
+  height: 100vh;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-width: 640px;
+  margin: 0 auto;
+  border-left: 1px solid #23262d;
+  border-right: 1px solid #23262d;
+}
+
+header {
+  padding: 16px;
+  text-align: center;
+  font-weight: 600;
+  border-bottom: 1px solid #23262d;
+}
+
+#chat-window {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.msg-row {
+  display: flex;
+  max-width: 80%;
+}
+
+.msg-row.user { align-self: flex-end; justify-content: flex-end; }
+.msg-row.ai { align-self: flex-start; }
+
+.bubble {
+  border-radius: var(--radius);
+  overflow: hidden;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.bubble.user {
+  background: var(--accent);
+  color: white;
+  padding: 10px 14px;
+}
+
+.bubble.ai-plain {
+  background: var(--bubble-dark);
+  color: var(--text-light);
+  padding: 10px 14px;
+}
+
+.bubble.ai-correction {
+  display: flex;
+  flex-direction: column;
+}
+
+.correction-part {
+  background: var(--bubble-light);
+  color: var(--text-dark);
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.reply-part {
+  background: var(--bubble-dark);
+  color: var(--text-light);
+  padding: 10px 14px;
+}
+
+#input-bar {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid #23262d;
+  background: var(--chat-bg);
+}
+
+#msg-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  border-radius: 20px;
+  padding: 10px 16px;
+  background: #22252c;
+  color: var(--text-light);
+  font-size: 0.95rem;
+}
+
+#send-btn {
+  border: none;
+  background: var(--accent);
+  color: white;
+  border-radius: 20px;
+  padding: 0 18px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+#summary-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+#summary-box {
+  background: var(--chat-bg);
+  padding: 24px;
+  border-radius: var(--radius);
+  max-width: 320px;
+  text-align: center;
+}
+
+#summary-box h3 { margin-bottom: 12px; }
+#summary-box ul { text-align: left; margin: 12px 0; padding-left: 20px; }
+#summary-box button {
+  margin-top: 12px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+}
+</style>
+</head>
+
+<body>
+<div id="app">
+  <header>Grammar Chat</header>
+  <div id="chat-window"></div>
+  <div id="input-bar">
+    <input id="msg-input" type="text" placeholder="Type a message..." autocomplete="off">
+    <button id="send-btn">Send</button>
+  </div>
+</div>
+
+<div id="summary-overlay">
+  <div id="summary-box">
+    <h3>You were quiet for a while</h3>
+    <p>Here's what to work on:</p>
+    <ul id="summary-list"></ul>
+    <button id="summary-close">Got it</button>
+  </div>
+</div>
+
+<script>
+</script>
+</body>
+</html>
+
+<script>
+const chatWindow = document.getElementById('chat-window');
+const msgInput = document.getElementById('msg-input');
+const sendBtn = document.getElementById('send-btn');
+const summaryOverlay = document.getElementById('summary-overlay');
+const summaryList = document.getElementById('summary-list');
+const summaryClose = document.getElementById('summary-close');
+
+const API_CHAT_URL = '/api/chat';
+const INACTIVITY_LIMIT_MS = 90 * 60 * 1000; // 1.5 hrs, tune as needed
+
+let mistakeCounts = {};
+let inactivityTimer = null;
+
+function resetInactivityTimer() {
+  if (inactivityTimer) clearTimeout(inactivityTimer);
+  inactivityTimer = setTimeout(triggerSummary, INACTIVITY_LIMIT_MS);
+}
+
+function showGreeting() {
+  appendPlainBubble("What's up?", 'ai');
+}
+
+window.addEventListener('load', () => {
+  showGreeting();
+  resetInactivityTimer();
+});
+
+
+function appendUserBubble(text) {
+  const row = document.createElement('div');
+  row.className = 'msg-row user';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble user';
+  bubble.textContent = text;
+  row.appendChild(bubble);
+  chatWindow.appendChild(row);
+  chatWindow.scrollTop = chatWindow.scrollHeight;
+}
+
+function appendPlainBubble(text, sender) {
+  const row = document.createElement('div');
+  row.className = 'msg-row ' + sender;
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble ai-plain';
+  bubble.textContent = text;
+  row.appendChild(bubble);
+  chatWindow.appendChild(row);
+  chatWindow.scrollTop = chatWindow.scrollHeight;
+}
+
+function appendCorrectionBubble(correctedText, replyText) {
+  const row = document.createElement('div');
+  row.className = 'msg-row ai';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble ai-correction';
+
+  const correctionPart = document.createElement('div');
+  correctionPart.className = 'correction-part';
+  correctionPart.textContent = correctedText;
+
+  const replyPart = document.createElement('div');
+  replyPart.className = 'reply-part';
+  replyPart.textContent = replyText;
+
+  bubble.appendChild(correctionPart);
+  bubble.appendChild(replyPart);
+  row.appendChild(bubble);
+  chatWindow.appendChild(row);
+  chatWindow.scrollTop = chatWindow.scrollHeight;
+}
+
+async function sendMessage() {
+  const text = msgInput.value.trim();
+  if (!text) return;
+
+  appendUserBubble(text);
+  msgInput.value = '';
+  resetInactivityTimer();
+
+  try {
+    const res = await fetch(API_CHAT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text })
+    });
+    const data = await res.json();
+    handleAiResponse(data);
+  } catch (err) {
+    appendPlainBubble('Something went wrong. Try again.', 'ai');
+  }
+}
+
+function handleAiResponse(data) {
+  if (data.has_error) {
+    appendCorrectionBubble(data.corrected_text, data.reply);
+    for (const cat of data.error_categories) {
+      mistakeCounts[cat.category] = (mistakeCounts[cat.category] || 0) + 1;
+    }
+  } else {
+    appendPlainBubble(data.reply, 'ai');
+  }
+}
+
+sendBtn.addEventListener('click', sendMessage);
+msgInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendMessage();
+});
+
+function triggerSummary() {
+  const weakAreas = Object.keys(mistakeCounts);
+  if (weakAreas.length === 0) return;
+
+  summaryList.innerHTML = '';
+  weakAreas
+    .sort((a, b) => mistakeCounts[b] - mistakeCounts[a])
+    .forEach(cat => {
+      const li = document.createElement('li');
+      li.textContent = cat.replace(/_/g, ' ').toLowerCase();
+      summaryList.appendChild(li);
+    });
+
+  summaryOverlay.style.display = 'flex';
+}
+
+summaryClose.addEventListener('click', () => {
+  summaryOverlay.style.display = 'none';
+  mistakeCounts = {};
+  resetInactivityTimer();
+});
+
+['keydown', 'click', 'input'].forEach(evt =>
+  document.addEventListener(evt, resetInactivityTimer)
+);
+</script>

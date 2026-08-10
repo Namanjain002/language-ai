@@ -56,8 +56,9 @@ def chat(request: ChatRequest):
         )
 
         session.record(user_message, response)
-        
-        context(response.corrected_text)
+
+        if response.corrected_text:
+            context(response.corrected_text)
         context(response.reply)
 
         return {

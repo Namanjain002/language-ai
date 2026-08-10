@@ -39,6 +39,7 @@ def clear_summary(session: ChatSession):
     session.error_tally.clear()
 
 message = []
+
 def context(text: str):
     message.append(text)
 
